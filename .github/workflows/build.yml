@@ -85,9 +85,14 @@ jobs:
           if ($p.ExitCode -ne 0) { Write-Error "WDK install failed: $($p.ExitCode)"; exit 1 }
 
           $kits = "C:\Program Files (x86)\Windows Kits\10"
+          # WDK 26100 путь: \Lib\wdf\kmdf\x64\1.33\WdfDriverStub.lib  (x64 → 1.33)
+          # Старые WDK клали \1.33\*\x64\ — принимаем оба порядка.
           $stub = Get-ChildItem "$kits\Lib" -Recurse -Filter "WdfDriverStub.lib" `
                   -ErrorAction SilentlyContinue |
-                  Where-Object { $_.FullName -match "\\1\.33\\.*\\x64\\" } |
+                  Where-Object {
+                      $_.FullName -match "\\x64\\1\.33\\" -or
+                      $_.FullName -match "\\1\.33\\.*\\x64\\"
+                  } |
                   Select-Object -First 1
           if (-not $stub) {
             Write-Host "[!] KMDF 1.33 stub not found. Enumerating..."
