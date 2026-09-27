@@ -1,0 +1,161 @@
+name: Build RecoilComp
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ── USERMODE ──────────────────────────────────────────────────────────────
+  build-usermode:
+    name: Usermode (CMake)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        working-directory: usermode
+        run: cmake -B build
+
+      - name: Build
+        working-directory: usermode
+        run: cmake --build build --config Release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RecoilComp-usermode
+          path: usermode/build/Release/RecoilComp.exe
+
+  # ── DRIVER ────────────────────────────────────────────────────────────────
+  build-driver:
+    name: Kernel Driver (WDK MSI + MSBuild)
+    runs-on: windows-2022
+
+    env:
+      # Windows 11 SDK 10.0.26100.1742  — matches the WDK version.
+      SDK_URL: https://go.microsoft.com/fwlink/?linkid=2272610
+      # Windows Driver Kit 10.0.26100.1  — ships KMDF 1.33 + stub libs
+      # + VS integration files (WindowsDriver.KMDF.props/targets).
+      WDK_URL: https://go.microsoft.com/fwlink/?linkid=2286137
+      SDK_VER: "10.0.26100.0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      # ── Install matching Windows 11 SDK ───────────────────────────────────
+      - name: Install Windows 11 SDK 26100
+        shell: pwsh
+        run: |
+          $tmp = "$env:RUNNER_TEMP\sdksetup.exe"
+          Write-Host "[*] Downloading SDK installer..."
+          Invoke-WebRequest -Uri $env:SDK_URL -OutFile $tmp -UseBasicParsing
+          Write-Host "[*] Running SDK installer (quiet)..."
+          $p = Start-Process -FilePath $tmp `
+                 -ArgumentList "/features","+","/quiet","/norestart","/ceip","off" `
+                 -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "SDK install failed: $($p.ExitCode)"; exit 1 }
+          if (-not (Test-Path "C:\Program Files (x86)\Windows Kits\10\Include\$env:SDK_VER\km\ntddk.h")) {
+            Write-Error "ntddk.h missing after SDK install"; exit 1
+          }
+          Write-Host "[OK] SDK $env:SDK_VER installed"
+
+      # ── Install WDK MSI (ships KMDF stub + VS integration) ────────────────
+      - name: Install WDK 26100
+        shell: pwsh
+        run: |
+          $tmp = "$env:RUNNER_TEMP\wdksetup.exe"
+          Write-Host "[*] Downloading WDK installer..."
+          Invoke-WebRequest -Uri $env:WDK_URL -OutFile $tmp -UseBasicParsing
+          Write-Host "[*] Running WDK installer (quiet)..."
+          $p = Start-Process -FilePath $tmp `
+                 -ArgumentList "/features","+","/quiet","/norestart","/ceip","off" `
+                 -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "WDK install failed: $($p.ExitCode)"; exit 1 }
+
+          $kits = "C:\Program Files (x86)\Windows Kits\10"
+          $stub = Get-ChildItem "$kits\Lib" -Recurse -Filter "WdfDriverStub.lib" `
+                  -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match "\\1\.33\\.*\\x64\\" } |
+                  Select-Object -First 1
+          if (-not $stub) {
+            Write-Host "[!] KMDF 1.33 stub not found. Enumerating..."
+            Get-ChildItem "$kits\Lib" -Recurse -Filter "WdfDriverStub.lib" |
+              ForEach-Object { Write-Host "    $($_.FullName)" }
+            Write-Error "WdfDriverStub.lib for KMDF 1.33 x64 missing after WDK install"
+            exit 1
+          }
+          Write-Host "[OK] KMDF stub: $($stub.FullName)"
+
+          $props = "$kits\build\WindowsDriver.KMDF.props"
+          if (-not (Test-Path $props)) {
+            Write-Error "WindowsDriver.KMDF.props missing — WDK VS integration didn't install"
+            exit 1
+          }
+          Write-Host "[OK] WDK VS integration present"
+
+      # ── Install WDK VS extension so MSBuild picks up the toolset ──────────
+      # The WDK MSI writes VS integration files but the .vsix needs a manual
+      # install with VS 2022. Skip if the platform toolset is already visible.
+      - name: Install WDK.vsix into VS 2022
+        shell: pwsh
+        run: |
+          $vsix = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Vsix" `
+                    -Recurse -Filter "*.vsix" -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+          if (-not $vsix) {
+            Write-Host "[i] No WDK vsix bundle found — WDK MSI already registered toolset."
+            exit 0
+          }
+          $vsixInst = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022" `
+                        -Recurse -Filter "VSIXInstaller.exe" -ErrorAction SilentlyContinue |
+                        Select-Object -First 1
+          if (-not $vsixInst) { Write-Host "[i] No VSIXInstaller — skipping."; exit 0 }
+          Write-Host "[*] Installing $($vsix.Name) into VS 2022..."
+          & $vsixInst.FullName /quiet /admin $vsix.FullName
+          Write-Host "[OK] vsix processed (exit $LASTEXITCODE)"
+
+      # ── Build ─────────────────────────────────────────────────────────────
+      - name: Build kernel driver (MSBuild)
+        shell: pwsh
+        working-directory: driver
+        run: |
+          msbuild RecoilDriver.vcxproj `
+            /nologo `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:SignMode=Off `
+            /p:DriverCFlagAddOn="/wd4324 /wd4201" `
+            /verbosity:minimal `
+            /m
+          if ($LASTEXITCODE -ne 0) { Write-Error "MSBuild failed"; exit 1 }
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          $sys = Get-ChildItem -Recurse -Filter "recoil.sys" |
+                 Select-Object -First 1
+          if (-not $sys) { Write-Error "recoil.sys not produced"; exit 1 }
+          Write-Host "[OK] recoil.sys — $($sys.Length) bytes at $($sys.FullName)"
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          Copy-Item $sys.FullName artifact\recoil.sys
+          Copy-Item driver\install.bat   artifact\install.bat   -ErrorAction SilentlyContinue
+          Copy-Item driver\uninstall.bat artifact\uninstall.bat -ErrorAction SilentlyContinue
+          Copy-Item driver\driver.inf    artifact\driver.inf    -ErrorAction SilentlyContinue
+
+      - name: Upload driver artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RecoilDriver-sys
+          path: artifact/*
