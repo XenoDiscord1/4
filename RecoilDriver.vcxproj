@@ -18,6 +18,10 @@
     <ProjectName>RecoilDriver</ProjectName>
     <RootNamespace>RecoilDriver</RootNamespace>
     <WDKContentRoot>$(Registry:HKEY_LOCAL_MACHINE\Software\Microsoft\Windows Kits\Installed Roots@KitsRoot10)</WDKContentRoot>
+    <!-- PlatformToolset ДОЛЖЕН быть в Globals: MSBuild читает его до первого Import.
+         Если поставить позже — WindowsKernelModeDriver10.0 не регистрируется,
+         WindowsDriver.Default.props импортируется для дефолтного toolset, не WDK. -->
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
   </PropertyGroup>
 
   <Import Project="$(WDKContentRoot)build\WindowsDriver.Default.props" />
@@ -30,7 +34,6 @@
     <TargetOsVersion>10.0</TargetOsVersion>
     <TargetPlatform>Desktop</TargetPlatform>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
-    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WppEnabled>false</WppEnabled>
     <SpectreMitigation>false</SpectreMitigation>
