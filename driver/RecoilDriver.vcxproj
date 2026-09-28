@@ -18,19 +18,18 @@
     <ProjectName>RecoilDriver</ProjectName>
     <RootNamespace>RecoilDriver</RootNamespace>
     <WDKContentRoot>$(Registry:HKEY_LOCAL_MACHINE\Software\Microsoft\Windows Kits\Installed Roots@KitsRoot10)</WDKContentRoot>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
   </PropertyGroup>
 
   <Import Project="$(WDKContentRoot)build\WindowsDriver.Default.props" />
 
   <PropertyGroup>
-    <!-- KMDF, not WDM. The code calls WdfDriverCreate. -->
     <ConfigurationType>Driver</ConfigurationType>
     <DriverType>KMDF</DriverType>
     <Platform>x64</Platform>
     <TargetOsVersion>10.0</TargetOsVersion>
     <TargetPlatform>Desktop</TargetPlatform>
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
-    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WppEnabled>false</WppEnabled>
     <SpectreMitigation>false</SpectreMitigation>
@@ -40,11 +39,9 @@
     <TargetExt>.sys</TargetExt>
   </PropertyGroup>
 
-  <!-- KMDF 1.33 matches what WDK 10.0.26100 MSI installs. WindowsDriver.KMDF.props
-       reads these and links the correct WdfDriverStub.lib automatically. -->
   <PropertyGroup>
     <KMDFVersionMajor>1</KMDFVersionMajor>
-    <KMDFVersionMinor>31</KMDFVersionMinor>
+    <KMDFVersionMinor>33</KMDFVersionMinor>
   </PropertyGroup>
 
   <Import Project="$(WDKContentRoot)build\WindowsDriver.props" />
@@ -70,14 +67,14 @@
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
-      <!-- KMDF stub, buffer overflow lib, and the mouse class helpers.
-           WindowsDriver.KMDF.targets already adds WdfDriverStub.lib +
-           WdfLdr.lib via the KMDFVersion* pair above, so no need to
-           list them here. Just the extras we consume. -->
       <AdditionalDependencies>
-        wdmsec.lib;wmilib.lib;
+        wdfdriverentry.lib;wdfldr.lib;wdmsec.lib;wmilib.lib;
         %(AdditionalDependencies)
       </AdditionalDependencies>
+      <AdditionalLibraryDirectories>
+        $(WDKContentRoot)Lib\wdf\kmdf\x64\$(KMDFVersion);
+        %(AdditionalLibraryDirectories)
+      </AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <Driver>true</Driver>
       <EntryPointSymbol>FxDriverEntry</EntryPointSymbol>
@@ -87,7 +84,6 @@
     <Inf>
       <TimeStampFile></TimeStampFile>
     </Inf>
-    <!-- No test-signing in CI. The .sys is unsigned; sign it downstream. -->
     <DriverSign>
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
