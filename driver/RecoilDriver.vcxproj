@@ -44,7 +44,7 @@
        reads these and links the correct WdfDriverStub.lib automatically. -->
   <PropertyGroup>
     <KMDFVersionMajor>1</KMDFVersionMajor>
-    <KMDFVersionMinor>33</KMDFVersionMinor>
+    <KMDFVersionMinor>31</KMDFVersionMinor>
   </PropertyGroup>
 
   <Import Project="$(WDKContentRoot)build\WindowsDriver.props" />
