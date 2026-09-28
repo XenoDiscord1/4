@@ -1,50 +1,139 @@
-    - name: Install WDK 26100
-      shell: pwsh
-      run: |
-        $tmp = "$env:RUNNER_TEMP\wdksetup.exe"
-        Invoke-WebRequest -Uri $env:WDK_URL -OutFile $tmp -UseBasicParsing
-        $p = Start-Process -FilePath $tmp `
-               -ArgumentList "/features","+","/quiet","/norestart","/ceip","off" `
-               -Wait -PassThru
-        if ($p.ExitCode -ne 0) { Write-Error "WDK install failed: $($p.ExitCode)"; exit 1 }
+name: Build RecoilComp
 
-        $kits = "C:\Program Files (x86)\Windows Kits\10"
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
-        # найти любой stub, не привязываясь к версии
-        $stub = Get-ChildItem "$kits\Lib" -Recurse -Filter "WdfDriverStub.lib" `
-                -ErrorAction SilentlyContinue |
-                Where-Object { $_.FullName -match "\\x64\\" } |
-                Select-Object -First 1
+jobs:
 
-        if (-not $stub) {
-          Write-Host "All WdfDriverStub.lib found:"
-          Get-ChildItem "$kits\Lib" -Recurse -Filter "WdfDriverStub.lib" |
-            ForEach-Object { Write-Host "  $($_.FullName)" }
-          Write-Error "WdfDriverStub.lib not found"; exit 1
-        }
+  build-usermode:
+    name: Usermode (CMake)
+    runs-on: windows-latest
 
-        # вытащить версию из пути: ...\KMDF\1.33\...
-        $m = [regex]::Match($stub.FullName, "\\(\d+)\.(\d+)\\")
-        $major = $m.Groups[1].Value
-        $minor = $m.Groups[2].Value
-        Write-Host "[OK] KMDF $major.$minor stub: $($stub.FullName)"
+    steps:
+      - uses: actions/checkout@v4
 
-        echo "KMDF_MAJOR=$major" >> $env:GITHUB_ENV
-        echo "KMDF_MINOR=$minor" >> $env:GITHUB_ENV
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
-    - name: Build kernel driver (MSBuild)
-      shell: pwsh
-      working-directory: driver
-      run: |
-        msbuild RecoilDriver.vcxproj `
-          /nologo `
-          /p:Configuration=Release `
-          /p:Platform=x64 `
-          /p:SolutionDir="$((Get-Item ..).FullName)\" `
-          /p:SignMode=Off `
-          /p:KMDFVersionMajor=$env:KMDF_MAJOR `
-          /p:KMDFVersionMinor=$env:KMDF_MINOR `
-          /p:DriverCFlagAddOn="/wd4324 /wd4201" `
-          /verbosity:minimal `
-          /m
-        if ($LASTEXITCODE -ne 0) { Write-Error "MSBuild failed"; exit 1 }
+      - name: Configure
+        working-directory: usermode
+        run: cmake -B build
+
+      - name: Build
+        working-directory: usermode
+        run: cmake --build build --config Release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RecoilComp-usermode
+          path: usermode/build/Release/RecoilComp.exe
+
+  build-driver:
+    name: Kernel Driver (WDK MSI + MSBuild)
+    runs-on: windows-2022
+
+    env:
+      SDK_URL: https://go.microsoft.com/fwlink/?linkid=2272610
+      WDK_URL: https://go.microsoft.com/fwlink/?linkid=2286137
+      SDK_VER: "10.0.26100.0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install Windows 11 SDK 26100
+        shell: pwsh
+        run: |
+          $tmp = "$env:RUNNER_TEMP\sdksetup.exe"
+          Invoke-WebRequest -Uri $env:SDK_URL -OutFile $tmp -UseBasicParsing
+          $p = Start-Process -FilePath $tmp `
+                 -ArgumentList "/features","+","/quiet","/norestart","/ceip","off" `
+                 -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "SDK install failed: $($p.ExitCode)"; exit 1 }
+          Write-Host "[OK] SDK installed"
+
+      - name: Install WDK 26100
+        shell: pwsh
+        run: |
+          $tmp = "$env:RUNNER_TEMP\wdksetup.exe"
+          Invoke-WebRequest -Uri $env:WDK_URL -OutFile $tmp -UseBasicParsing
+          $p = Start-Process -FilePath $tmp `
+                 -ArgumentList "/features","+","/quiet","/norestart","/ceip","off" `
+                 -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "WDK install failed: $($p.ExitCode)"; exit 1 }
+
+          $kits = "C:\Program Files (x86)\Windows Kits\10"
+          $stub = Get-ChildItem "$kits\Lib" -Recurse -Filter "WdfDriverStub.lib" `
+                  -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match "\\x64\\" } |
+                  Select-Object -First 1
+
+          if (-not $stub) {
+            Get-ChildItem "$kits\Lib" -Recurse -Filter "WdfDriverStub.lib" |
+              ForEach-Object { Write-Host "  $($_.FullName)" }
+            Write-Error "WdfDriverStub.lib not found"; exit 1
+          }
+
+          $m = [regex]::Match($stub.FullName, "\\(\d+)\.(\d+)\\")
+          $major = $m.Groups[1].Value
+          $minor = $m.Groups[2].Value
+          Write-Host "[OK] KMDF $major.$minor stub: $($stub.FullName)"
+          echo "KMDF_MAJOR=$major" >> $env:GITHUB_ENV
+          echo "KMDF_MINOR=$minor" >> $env:GITHUB_ENV
+
+      - name: Install WDK.vsix into VS 2022
+        shell: pwsh
+        run: |
+          $vsix = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Vsix" `
+                    -Recurse -Filter "*.vsix" -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+          if (-not $vsix) { Write-Host "[i] No vsix found"; exit 0 }
+          $vsixInst = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022" `
+                        -Recurse -Filter "VSIXInstaller.exe" -ErrorAction SilentlyContinue |
+                        Select-Object -First 1
+          if (-not $vsixInst) { Write-Host "[i] No VSIXInstaller"; exit 0 }
+          & $vsixInst.FullName /quiet /admin $vsix.FullName
+          Write-Host "[OK] vsix done"
+
+      - name: Build kernel driver (MSBuild)
+        shell: pwsh
+        working-directory: driver
+        run: |
+          msbuild RecoilDriver.vcxproj `
+            /nologo `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:SolutionDir="$((Get-Item ..).FullName)\" `
+            /p:SignMode=Off `
+            /p:KMDFVersionMajor=$env:KMDF_MAJOR `
+            /p:KMDFVersionMinor=$env:KMDF_MINOR `
+            /p:DriverCFlagAddOn="/wd4324 /wd4201" `
+            /verbosity:minimal `
+            /m
+          if ($LASTEXITCODE -ne 0) { Write-Error "MSBuild failed"; exit 1 }
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          $sys = Get-ChildItem -Recurse -Filter "recoil.sys" | Select-Object -First 1
+          if (-not $sys) { Write-Error "recoil.sys not produced"; exit 1 }
+          Write-Host "[OK] $($sys.FullName)"
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          Copy-Item $sys.FullName artifact\recoil.sys
+          Copy-Item driver\install.bat   artifact\install.bat   -ErrorAction SilentlyContinue
+          Copy-Item driver\uninstall.bat artifact\uninstall.bat -ErrorAction SilentlyContinue
+          Copy-Item driver\driver.inf    artifact\driver.inf    -ErrorAction SilentlyContinue
+
+      - name: Upload driver artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RecoilDriver-sys
+          path: artifact/*
