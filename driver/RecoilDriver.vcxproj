@@ -33,6 +33,11 @@
     <IntDir>$(SolutionDir)obj\$(ProjectName)\</IntDir>
     <TargetName>recoil</TargetName>
     <TargetExt>.sys</TargetExt>
+    <!-- ★ FIX LNK1295: запрещаем манифест на уровне PropertyGroup,
+         чтобы MSBuild не передал /MANIFEST линкеру до того,
+         как тот увидит /DRIVER из AdditionalOptions ★ -->
+    <EmbedManifest>false</EmbedManifest>
+    <GenerateManifest>false</GenerateManifest>
   </PropertyGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -72,13 +77,18 @@
         wdfdriverentry.lib;wdfldr.lib;BufferOverflowFastFail.lib;
         %(AdditionalDependencies)
       </AdditionalDependencies>
-      <AdditionalOptions>/DRIVER %(AdditionalOptions)</AdditionalOptions>
+      <!-- ★ FIX LNK1295: /MANIFEST:NO явно на уровне линкера —
+           страховка на случай если PropertyGroup переопределится
+           каким-нибудь импортом после Microsoft.Cpp.props ★ -->
+      <AdditionalOptions>/DRIVER /MANIFEST:NO %(AdditionalOptions)</AdditionalOptions>
       <SubSystem>Native</SubSystem>
       <NoDefaultLib>true</NoDefaultLib>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EntryPointSymbol>FxDriverEntry</EntryPointSymbol>
       <BaseAddress>0x10000</BaseAddress>
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
+      <!-- ★ FIX LNK1295: третий уровень — свойство Link напрямую ★ -->
+      <GenerateManifest>false</GenerateManifest>
     </Link>
   </ItemDefinitionGroup>
 
