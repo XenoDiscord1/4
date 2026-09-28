@@ -11,49 +11,44 @@
 
   <PropertyGroup Label="Globals">
     <ProjectGuid>{AABBCCDD-1234-5678-ABCD-DEADBEEF0001}</ProjectGuid>
-    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <MinimumVisualStudioVersion>15.0</MinimumVisualStudioVersion>
     <Configuration>Release</Configuration>
     <Platform>x64</Platform>
     <ProjectName>RecoilDriver</ProjectName>
     <RootNamespace>RecoilDriver</RootNamespace>
-    <WDKContentRoot>$(Registry:HKEY_LOCAL_MACHINE\Software\Microsoft\Windows Kits\Installed Roots@KitsRoot10)</WDKContentRoot>
-    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <!-- пути передаются из build.yml через /p: -->
+    <WdkRoot Condition="'$(WdkRoot)'==''">C:\Program Files (x86)\Windows Kits\10\</WdkRoot>
+    <SdkVer Condition="'$(SdkVer)'==''">10.0.22621.0</SdkVer>
+    <KMDFVer Condition="'$(KMDFVer)'==''">1.33</KMDFVer>
   </PropertyGroup>
 
-  <Import Project="$(WDKContentRoot)build\WindowsDriver.Default.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
 
   <PropertyGroup>
-    <ConfigurationType>Driver</ConfigurationType>
-    <DriverType>KMDF</DriverType>
-    <Platform>x64</Platform>
-    <TargetOsVersion>10.0</TargetOsVersion>
-    <TargetPlatform>Desktop</TargetPlatform>
-    <DriverTargetPlatform>Universal</DriverTargetPlatform>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <WppEnabled>false</WppEnabled>
-    <SpectreMitigation>false</SpectreMitigation>
     <OutDir>$(SolutionDir)bin\Release\</OutDir>
     <IntDir>$(SolutionDir)obj\$(ProjectName)\</IntDir>
     <TargetName>recoil</TargetName>
     <TargetExt>.sys</TargetExt>
   </PropertyGroup>
 
-  <PropertyGroup>
-    <KMDFVersionMajor>1</KMDFVersionMajor>
-    <KMDFVersionMinor>33</KMDFVersionMinor>
-  </PropertyGroup>
-
-  <Import Project="$(WDKContentRoot)build\WindowsDriver.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
 
   <ItemDefinitionGroup>
     <ClCompile>
       <AdditionalIncludeDirectories>
+        $(WdkRoot)Include\$(SdkVer)\km;
+        $(WdkRoot)Include\$(SdkVer)\shared;
+        $(WdkRoot)Include\$(SdkVer)\um;
+        $(WdkRoot)Include\wdf\kmdf\$(KMDFVer);
         $(SolutionDir)usermode;
         %(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
       <PreprocessorDefinitions>
-        _AMD64_;NDEBUG;_KERNEL_MODE;
+        _AMD64_;NDEBUG;_KERNEL_MODE;_WIN64;
         %(PreprocessorDefinitions)
       </PreprocessorDefinitions>
       <Optimization>MaxSpeed</Optimization>
@@ -61,32 +56,30 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <DisableSpecificWarnings>4324;4201;4055</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4324;4201;4055;4100</DisableSpecificWarnings>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <ExceptionHandling>false</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>
-        wdfdriverentry.lib;wdfldr.lib;wdmsec.lib;wmilib.lib;
-        %(AdditionalDependencies)
-      </AdditionalDependencies>
       <AdditionalLibraryDirectories>
-        $(WDKContentRoot)Lib\wdf\kmdf\x64\$(KMDFVersion);
+        $(WdkRoot)Lib\$(SdkVer)\km\x64;
+        $(WdkRoot)Lib\wdf\kmdf\x64\$(KMDFVer);
         %(AdditionalLibraryDirectories)
       </AdditionalLibraryDirectories>
+      <AdditionalDependencies>
+        ntoskrnl.lib;hal.lib;wmilib.lib;wdmsec.lib;
+        wdfdriverentry.lib;wdfldr.lib;BufferOverflowFastFail.lib;
+        %(AdditionalDependencies)
+      </AdditionalDependencies>
+      <AdditionalOptions>/DRIVER %(AdditionalOptions)</AdditionalOptions>
+      <SubSystem>Native</SubSystem>
+      <NoDefaultLib>true</NoDefaultLib>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <Driver>true</Driver>
       <EntryPointSymbol>FxDriverEntry</EntryPointSymbol>
       <BaseAddress>0x10000</BaseAddress>
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
-    <Inf>
-      <TimeStampFile></TimeStampFile>
-    </Inf>
-    <DriverSign>
-      <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
-    </DriverSign>
   </ItemDefinitionGroup>
 
   <ItemGroup>
@@ -100,10 +93,6 @@
     <ClInclude Include="..\usermode\driver_shared.h" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Inf Include="driver.inf" />
-  </ItemGroup>
-
-  <Import Project="$(WDKContentRoot)build\WindowsDriver.targets" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 
 </Project>
