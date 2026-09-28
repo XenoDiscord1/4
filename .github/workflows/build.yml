@@ -70,35 +70,17 @@ jobs:
                  -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "WDK failed: $($p.ExitCode)"; exit 1 }
 
-          $roots = @(
-            "C:\Program Files (x86)\Windows Kits\10",
-            "C:\Program Files\Windows Kits\10"
-          )
-          $stub = $null
-          foreach ($root in $roots) {
-            if (Test-Path $root) {
-              $stub = Get-ChildItem $root -Recurse -Filter "WdfDriverStub.lib" `
-                      -ErrorAction SilentlyContinue |
-                      Where-Object { $_.FullName -match "\\x64\\" } |
-                      Select-Object -First 1
-              if ($stub) { break }
-            }
-          }
+          $kits = "C:\Program Files (x86)\Windows Kits\10"
+          $stub = Get-ChildItem "$kits\Lib\wdf\kmdf\x64" -Recurse `
+                  -Filter "wdfdriverentry.lib" -ErrorAction SilentlyContinue |
+                  Select-Object -First 1
 
-          if (-not $stub) {
-            Write-Host "=== All .lib files with Wdf in name ==="
-            $roots | ForEach-Object {
-              if (Test-Path $_) {
-                Get-ChildItem $_ -Recurse -Filter "*Wdf*.lib" -ErrorAction SilentlyContinue |
-                  ForEach-Object { Write-Host $_.FullName }
-              }
-            }
-            Write-Error "WdfDriverStub.lib not found"; exit 1
-          }
+          if (-not $stub) { Write-Error "wdfdriverentry.lib not found"; exit 1 }
 
-          $m = [regex]::Match($stub.FullName, "\\(\d+)\.(\d+)\\")
-          $major = $m.Groups[1].Value
-          $minor = $m.Groups[2].Value
+          $m = [regex]::Match($stub.FullName, "\\x64\\([\d.]+)\\")
+          $ver = $m.Groups[1].Value
+          $major = $ver.Split('.')[0]
+          $minor = $ver.Split('.')[1]
           Write-Host "[OK] KMDF $major.$minor — $($stub.FullName)"
           echo "KMDF_MAJOR=$major" >> $env:GITHUB_ENV
           echo "KMDF_MINOR=$minor" >> $env:GITHUB_ENV
