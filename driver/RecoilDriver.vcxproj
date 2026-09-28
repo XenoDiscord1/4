@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="15.0"
+<Project DefaultTargets="Build" ToolsVersion="12.0"
          xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
   <ItemGroup Label="ProjectConfigurations">
@@ -9,49 +9,76 @@
     </ProjectConfiguration>
   </ItemGroup>
 
+  <!-- ─── Глобальные свойства ──────────────────────────────────────────── -->
   <PropertyGroup Label="Globals">
     <ProjectGuid>{AABBCCDD-1234-5678-ABCD-DEADBEEF0001}</ProjectGuid>
-    <MinimumVisualStudioVersion>15.0</MinimumVisualStudioVersion>
-    <Configuration>Release</Configuration>
-    <Platform>x64</Platform>
+    <TemplateGuid>{A1B2C3D4-0000-0000-0000-000000000001}</TemplateGuid>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <MinimumVisualStudioVersion>12.0</MinimumVisualStudioVersion>
+    <Configuration Condition="'$(Configuration)'==''">Release</Configuration>
+    <Platform      Condition="'$(Platform)'==''">x64</Platform>
     <ProjectName>RecoilDriver</ProjectName>
     <RootNamespace>RecoilDriver</RootNamespace>
-    <PlatformToolset>v143</PlatformToolset>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsDriverTargetPlatformVersion>10.0</WindowsDriverTargetPlatformVersion>
+    <!-- пути передаются из build.yml через /p:, здесь только fallback -->
     <WdkRoot Condition="'$(WdkRoot)'==''">C:\Program Files (x86)\Windows Kits\10\</WdkRoot>
-    <SdkVer Condition="'$(SdkVer)'==''">10.0.22621.0</SdkVer>
+    <SdkVer  Condition="'$(SdkVer)'==''">10.0.22621.0</SdkVer>
     <KMDFVer Condition="'$(KMDFVer)'==''">1.33</KMDFVer>
   </PropertyGroup>
 
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
 
-  <PropertyGroup>
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
+  <!-- ─── Конфигурация ─────────────────────────────────────────────────── -->
+  <!--
+    БЫЛО: ConfigurationType=DynamicLibrary + PlatformToolset=v143
+          → MSBuild гонит EmbedManifest после линковки → .sys пропадает
+    СТАЛО: ConfigurationType=Driver + WindowsKernelModeDriver10.0
+          → WDK-toolset знает про драйверы: манифеста нет, .sys выходит сам
+  -->
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'"
+                 Label="Configuration">
+    <ConfigurationType>Driver</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <OutDir>$(SolutionDir)bin\Release\</OutDir>
-    <IntDir>$(SolutionDir)obj\$(ProjectName)\</IntDir>
-    <TargetName>recoil</TargetName>
-    <TargetExt>.sys</TargetExt>
-    <!-- FIX LNK1295 -->
-    <EmbedManifest>false</EmbedManifest>
-    <GenerateManifest>false</GenerateManifest>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <DriverTargetPlatform>Universal</DriverTargetPlatform>
+    <DriverType>KMDF</DriverType>
   </PropertyGroup>
 
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
+  <ImportGroup Label="ExtensionSettings"/>
+  <ImportGroup Label="PropertySheets"
+               Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+            Label="LocalAppDataPlatforms"/>
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros"/>
 
-  <ItemDefinitionGroup>
+  <!-- ─── Пути вывода — ПОСЛЕ Microsoft.Cpp.props, иначе перекрываются ── -->
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(SolutionDir)bin\Release\</OutDir>
+    <IntDir>$(SolutionDir)obj\RecoilDriver\</IntDir>
+    <TargetName>recoil</TargetName>
+    <!-- TargetExt не нужен: Driver-тип выставляет .sys сам,
+         но явно пишем чтобы при любом порядке импортов не сломалось -->
+    <TargetExt>.sys</TargetExt>
+  </PropertyGroup>
+
+  <!-- ─── Компилятор + линкер ─────────────────────────────────────────── -->
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
+      <!--
+        WDK-toolset уже знает стандартные km/shared пути.
+        Добавляем только WDF-заголовки и usermode (driver_shared.h).
+      -->
       <AdditionalIncludeDirectories>
-        $(WdkRoot)Include\$(SdkVer)\km;
-        $(WdkRoot)Include\$(SdkVer)\shared;
-        $(WdkRoot)Include\$(SdkVer)\um;
         $(WdkRoot)Include\wdf\kmdf\$(KMDFVer);
         $(SolutionDir)usermode;
         %(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
       <PreprocessorDefinitions>
-        _AMD64_;NDEBUG;_KERNEL_MODE;_WIN64;
-        %(PreprocessorDefinitions)
+        NDEBUG;_AMD64_;_WIN64;%(PreprocessorDefinitions)
       </PreprocessorDefinitions>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -59,10 +86,8 @@
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>false</TreatWarningAsError>
       <DisableSpecificWarnings>4324;4201;4055;4100</DisableSpecificWarnings>
-      <!-- /GS- → BufferOverflowFastFail.lib не нужна совсем -->
+      <!-- /GS- → BufferOverflow*.lib не нужна -->
       <BufferSecurityCheck>false</BufferSecurityCheck>
-      <ExceptionHandling>false</ExceptionHandling>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>
@@ -70,34 +95,39 @@
         $(WdkRoot)Lib\wdf\kmdf\x64\$(KMDFVer);
         %(AdditionalLibraryDirectories)
       </AdditionalLibraryDirectories>
+      <!--
+        ntoskrnl.lib / hal.lib — WindowsKernelModeDriver10.0 линкует сам.
+        wdfdriverentry.lib — даёт FxDriverEntry (PE entry point для KMDF).
+        wdfldr.lib убран: не существует как отдельный файл в WDK.
+        wdmsec.lib убрана: IoCreateDeviceSecure не используется.
+        BufferOverflowFastFail.lib убрана: /GS- → символ не эмитится.
+      -->
       <AdditionalDependencies>
-        ntoskrnl.lib;hal.lib;wmilib.lib;wdmsec.lib;
-        wdfdriverentry.lib;wdfldr.lib;
-        %(AdditionalDependencies)
+        wdfdriverentry.lib;%(AdditionalDependencies)
       </AdditionalDependencies>
-      <!-- FIX LNK1295 + FIX LNK1181 -->
-      <AdditionalOptions>/DRIVER /MANIFEST:NO %(AdditionalOptions)</AdditionalOptions>
-      <SubSystem>Native</SubSystem>
-      <NoDefaultLib>true</NoDefaultLib>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <GenerateManifest>false</GenerateManifest>
+      <!-- FxDriverEntry из wdfdriverentry.lib → вызывает DriverEntry -->
       <EntryPointSymbol>FxDriverEntry</EntryPointSymbol>
       <BaseAddress>0x10000</BaseAddress>
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
 
+  <!-- ─── Исходники ────────────────────────────────────────────────────── -->
   <ItemGroup>
-    <ClCompile Include="driver.c" />
-    <ClCompile Include="evasion.c" />
-    <ClCompile Include="mouse_filter.c" />
+    <ClCompile Include="driver.c"/>
+    <ClCompile Include="evasion.c"/>
+    <ClCompile Include="mouse_filter.c"/>
   </ItemGroup>
 
   <ItemGroup>
-    <ClInclude Include="driver.h" />
-    <ClInclude Include="..\usermode\driver_shared.h" />
+    <ClInclude Include="driver.h"/>
+    <ClInclude Include="..\usermode\driver_shared.h"/>
   </ItemGroup>
 
-  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\Microsoft.CppBuild.targets"
+            Condition="Exists('$(VCTargetsPath)\Microsoft.CppBuild.targets')"/>
+  </ImportGroup>
 
 </Project>
