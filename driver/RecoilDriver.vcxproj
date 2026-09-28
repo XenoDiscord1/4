@@ -69,10 +69,13 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <!--
-        WDK-toolset уже знает стандартные km/shared пути.
-        Добавляем только WDF-заголовки и usermode (driver_shared.h).
+        WindowsKernelModeDriver10.0 НЕ добавляет пути автоматически
+        на этом раннере — прописываем все явно.
       -->
       <AdditionalIncludeDirectories>
+        $(WdkRoot)Include\$(SdkVer)\km;
+        $(WdkRoot)Include\$(SdkVer)\shared;
+        $(WdkRoot)Include\$(SdkVer)\um;
         $(WdkRoot)Include\wdf\kmdf\$(KMDFVer);
         $(SolutionDir)usermode;
         %(AdditionalIncludeDirectories)
