@@ -69,13 +69,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <!--
-        WindowsKernelModeDriver10.0 НЕ добавляет пути автоматически
-        на этом раннере — прописываем все явно.
+        um\ намеренно исключён: kernel driver не должен видеть user-mode
+        заголовки. Их присутствие в пути тянет windows.h → minwinbase.h
+        → CRITICAL_SECTION / SRWLOCK → сотня ошибок C2061/C2146.
+        ntddk.h / wdf.h / kbdmou.h живут в km\ и shared\ — их достаточно.
       -->
       <AdditionalIncludeDirectories>
         $(WdkRoot)Include\$(SdkVer)\km;
         $(WdkRoot)Include\$(SdkVer)\shared;
-        $(WdkRoot)Include\$(SdkVer)\um;
         $(WdkRoot)Include\wdf\kmdf\$(KMDFVer);
         $(SolutionDir)usermode;
         %(AdditionalIncludeDirectories)
@@ -128,9 +129,11 @@
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
-  <ImportGroup Label="ExtensionTargets">
-    <Import Project="$(VCTargetsPath)\Microsoft.CppBuild.targets"
-            Condition="Exists('$(VCTargetsPath)\Microsoft.CppBuild.targets')"/>
-  </ImportGroup>
+  <!--
+    Microsoft.CppBuild.targets НЕ импортируем явно:
+    WindowsKernelModeDriver10.0 уже тянет его через Microsoft.CppCommon.targets (91,3).
+    Повторный импорт → MSB4011 warning и потенциальный конфликт targets.
+  -->
+  <ImportGroup Label="ExtensionTargets"/>
 
 </Project>
