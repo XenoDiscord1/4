@@ -35,13 +35,13 @@ jobs:
           path: usermode/build/Release/RecoilComp.exe
 
   build-driver:
-    name: Kernel Driver (WDK MSI + MSBuild)
+    name: Kernel Driver (WDK + MSBuild)
     runs-on: windows-2022
 
     env:
-      SDK_URL: https://go.microsoft.com/fwlink/?linkid=2272610
-      WDK_URL: https://go.microsoft.com/fwlink/?linkid=2286137
-      SDK_VER: "10.0.26100.0"
+      SDK_URL: https://go.microsoft.com/fwlink/?linkid=2196241
+      WDK_URL: https://go.microsoft.com/fwlink/?linkid=2196230
+      SDK_VER: "10.0.22621.0"
 
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +49,7 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Install Windows 11 SDK 26100
+      - name: Install Windows 11 SDK 22621
         shell: pwsh
         run: |
           $tmp = "$env:RUNNER_TEMP\sdksetup.exe"
@@ -57,10 +57,10 @@ jobs:
           $p = Start-Process -FilePath $tmp `
                  -ArgumentList "/features","+","/quiet","/norestart","/ceip","off" `
                  -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Write-Error "SDK install failed: $($p.ExitCode)"; exit 1 }
+          if ($p.ExitCode -ne 0) { Write-Error "SDK failed: $($p.ExitCode)"; exit 1 }
           Write-Host "[OK] SDK installed"
 
-      - name: Install WDK 26100
+      - name: Install WDK 22621
         shell: pwsh
         run: |
           $tmp = "$env:RUNNER_TEMP\wdksetup.exe"
@@ -68,24 +68,38 @@ jobs:
           $p = Start-Process -FilePath $tmp `
                  -ArgumentList "/features","+","/quiet","/norestart","/ceip","off" `
                  -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Write-Error "WDK install failed: $($p.ExitCode)"; exit 1 }
+          if ($p.ExitCode -ne 0) { Write-Error "WDK failed: $($p.ExitCode)"; exit 1 }
 
-          $kits = "C:\Program Files (x86)\Windows Kits\10"
-          $stub = Get-ChildItem "$kits\Lib" -Recurse -Filter "WdfDriverStub.lib" `
-                  -ErrorAction SilentlyContinue |
-                  Where-Object { $_.FullName -match "\\x64\\" } |
-                  Select-Object -First 1
+          $roots = @(
+            "C:\Program Files (x86)\Windows Kits\10",
+            "C:\Program Files\Windows Kits\10"
+          )
+          $stub = $null
+          foreach ($root in $roots) {
+            if (Test-Path $root) {
+              $stub = Get-ChildItem $root -Recurse -Filter "WdfDriverStub.lib" `
+                      -ErrorAction SilentlyContinue |
+                      Where-Object { $_.FullName -match "\\x64\\" } |
+                      Select-Object -First 1
+              if ($stub) { break }
+            }
+          }
 
           if (-not $stub) {
-            Get-ChildItem "$kits\Lib" -Recurse -Filter "WdfDriverStub.lib" |
-              ForEach-Object { Write-Host "  $($_.FullName)" }
+            Write-Host "=== All .lib files with Wdf in name ==="
+            $roots | ForEach-Object {
+              if (Test-Path $_) {
+                Get-ChildItem $_ -Recurse -Filter "*Wdf*.lib" -ErrorAction SilentlyContinue |
+                  ForEach-Object { Write-Host $_.FullName }
+              }
+            }
             Write-Error "WdfDriverStub.lib not found"; exit 1
           }
 
           $m = [regex]::Match($stub.FullName, "\\(\d+)\.(\d+)\\")
           $major = $m.Groups[1].Value
           $minor = $m.Groups[2].Value
-          Write-Host "[OK] KMDF $major.$minor stub: $($stub.FullName)"
+          Write-Host "[OK] KMDF $major.$minor — $($stub.FullName)"
           echo "KMDF_MAJOR=$major" >> $env:GITHUB_ENV
           echo "KMDF_MINOR=$minor" >> $env:GITHUB_ENV
 
@@ -95,15 +109,15 @@ jobs:
           $vsix = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Vsix" `
                     -Recurse -Filter "*.vsix" -ErrorAction SilentlyContinue |
                     Select-Object -First 1
-          if (-not $vsix) { Write-Host "[i] No vsix found"; exit 0 }
-          $vsixInst = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022" `
-                        -Recurse -Filter "VSIXInstaller.exe" -ErrorAction SilentlyContinue |
-                        Select-Object -First 1
-          if (-not $vsixInst) { Write-Host "[i] No VSIXInstaller"; exit 0 }
-          & $vsixInst.FullName /quiet /admin $vsix.FullName
+          if (-not $vsix) { Write-Host "[i] No vsix"; exit 0 }
+          $inst = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022" `
+                    -Recurse -Filter "VSIXInstaller.exe" -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+          if (-not $inst) { Write-Host "[i] No VSIXInstaller"; exit 0 }
+          & $inst.FullName /quiet /admin $vsix.FullName
           Write-Host "[OK] vsix done"
 
-      - name: Build kernel driver (MSBuild)
+      - name: Build kernel driver
         shell: pwsh
         working-directory: driver
         run: |
@@ -128,9 +142,9 @@ jobs:
           Write-Host "[OK] $($sys.FullName)"
           New-Item -ItemType Directory -Force -Path artifact | Out-Null
           Copy-Item $sys.FullName artifact\recoil.sys
-          Copy-Item driver\install.bat   artifact\install.bat   -ErrorAction SilentlyContinue
-          Copy-Item driver\uninstall.bat artifact\uninstall.bat -ErrorAction SilentlyContinue
-          Copy-Item driver\driver.inf    artifact\driver.inf    -ErrorAction SilentlyContinue
+          Copy-Item driver\install.bat   artifact\ -ErrorAction SilentlyContinue
+          Copy-Item driver\uninstall.bat artifact\ -ErrorAction SilentlyContinue
+          Copy-Item driver\driver.inf    artifact\ -ErrorAction SilentlyContinue
 
       - name: Upload driver artifact
         uses: actions/upload-artifact@v4
