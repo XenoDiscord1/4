@@ -18,7 +18,6 @@
     <RootNamespace>RecoilDriver</RootNamespace>
     <PlatformToolset>v143</PlatformToolset>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <!-- пути передаются из build.yml через /p: -->
     <WdkRoot Condition="'$(WdkRoot)'==''">C:\Program Files (x86)\Windows Kits\10\</WdkRoot>
     <SdkVer Condition="'$(SdkVer)'==''">10.0.22621.0</SdkVer>
     <KMDFVer Condition="'$(KMDFVer)'==''">1.33</KMDFVer>
@@ -33,9 +32,7 @@
     <IntDir>$(SolutionDir)obj\$(ProjectName)\</IntDir>
     <TargetName>recoil</TargetName>
     <TargetExt>.sys</TargetExt>
-    <!-- ★ FIX LNK1295: запрещаем манифест на уровне PropertyGroup,
-         чтобы MSBuild не передал /MANIFEST линкеру до того,
-         как тот увидит /DRIVER из AdditionalOptions ★ -->
+    <!-- FIX LNK1295 -->
     <EmbedManifest>false</EmbedManifest>
     <GenerateManifest>false</GenerateManifest>
   </PropertyGroup>
@@ -62,6 +59,7 @@
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>false</TreatWarningAsError>
       <DisableSpecificWarnings>4324;4201;4055;4100</DisableSpecificWarnings>
+      <!-- /GS- → BufferOverflowFastFail.lib не нужна совсем -->
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <ExceptionHandling>false</ExceptionHandling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
@@ -74,21 +72,18 @@
       </AdditionalLibraryDirectories>
       <AdditionalDependencies>
         ntoskrnl.lib;hal.lib;wmilib.lib;wdmsec.lib;
-        wdfdriverentry.lib;wdfldr.lib;BufferOverflowFastFail.lib;
+        wdfdriverentry.lib;wdfldr.lib;
         %(AdditionalDependencies)
       </AdditionalDependencies>
-      <!-- ★ FIX LNK1295: /MANIFEST:NO явно на уровне линкера —
-           страховка на случай если PropertyGroup переопределится
-           каким-нибудь импортом после Microsoft.Cpp.props ★ -->
+      <!-- FIX LNK1295 + FIX LNK1181 -->
       <AdditionalOptions>/DRIVER /MANIFEST:NO %(AdditionalOptions)</AdditionalOptions>
       <SubSystem>Native</SubSystem>
       <NoDefaultLib>true</NoDefaultLib>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateManifest>false</GenerateManifest>
       <EntryPointSymbol>FxDriverEntry</EntryPointSymbol>
       <BaseAddress>0x10000</BaseAddress>
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
-      <!-- ★ FIX LNK1295: третий уровень — свойство Link напрямую ★ -->
-      <GenerateManifest>false</GenerateManifest>
     </Link>
   </ItemDefinitionGroup>
 
